@@ -1,0 +1,18 @@
+STEP 1:
+    Make sure docker desktop app is running
+
+STEP 2: #build the docker file
+    cd "your file directoty"
+    docker build -t emotion-detection . 
+
+STEP 3: #Run the Container (to check if it works)
+    docker run --rm -it -v "Your directory" emotion-detection
+
+STEP 4: #Run Training in Docker:
+    docker run --rm -it -v "Your directory" emotion-detection python emotions.py --mode train
+
+STEP 5: #Run Display Mode on the Host Machine (Not Docker)
+    #activate your environment, check the requirements.txt file to check if your environment has all the dependences.
+    python emotions.py --mode display
+
+    #Press q if you want to quit
