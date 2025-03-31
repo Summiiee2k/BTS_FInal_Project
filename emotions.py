@@ -130,7 +130,7 @@ if __name__ == "__main__":
 
     # Let's set up how we'll load the images for training and validation
     batch_size = 64  # How many images we process at once
-    num_epoch = 10  # How many times we go through the dataset (we can increase this later)
+    num_epoch = 100  # How many times we go through the dataset (we can increase this later)
     num_train = 28709  # Number of training images in FER-2013
     num_val = 7178     # Number of validation images in FER-2013
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
 
     if mode == "train":
         # Let's set up how we want to train the model
-        initial_learning_rate = 0.001  # Starting learning rate (we'll adjust it if needed)
+        initial_learning_rate = 0.003  # Starting learning rate (we'll adjust it if needed)
         optimizer = Adam(learning_rate=initial_learning_rate)
         model.compile(loss='categorical_crossentropy',  # Loss function for classification
                       optimizer=optimizer,

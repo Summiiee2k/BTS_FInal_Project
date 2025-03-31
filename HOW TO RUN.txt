@@ -9,7 +9,10 @@ STEP 3: #Run the Container (to check if it works)
     docker run --rm -it -v "Your directory" emotion-detection
 
 STEP 4: #Run Training in Docker:
-    docker run --rm -it -v "Your directory" emotion-detection python emotions.py --mode train
+    docker run --rm -it -v "Your directory" emotion-detection python emotions.py --mode train 
+    
+    For Sumedh
+    #docker run --rm -it -v "A:/FINALPROJECT/main/output:/app/output" emotion-detection python emotions.py --mode train
 
 STEP 5: #Run Display Mode on the Host Machine (Not Docker)
     #activate your environment, check the requirements.txt file to check if your environment has all the dependences.
