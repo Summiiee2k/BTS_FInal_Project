@@ -1,10 +1,8 @@
 """
 Improved Emotion Detection Script with Transfer Learning
 
-This version uses MobileNetV2 (pre-trained on ImageNet) to improve feature extraction,
-and upscales the FER-2013 images from 48x48 to 96x96. Images are read in RGB mode so
-that the pre-trained network can leverage its learned features. Once the top layers are
-added, we fine-tune on our 7-class emotion problem.
+This version uses MobileNetV2 with fine-tuning, class weighting, and enhanced data augmentation.
+We also add an evaluate mode to check per-class performance.
 """
 
 import os
@@ -22,6 +20,9 @@ from keras.models import Model
 from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+import sklearn 
+from sklearn.metrics import classification_report
+from collections import Counter
 
 # Keep TensorFlow logs minimal
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -74,17 +75,41 @@ def plot_model_history(history):
     axs[1].set_xlabel('Epoch')
     axs[1].legend()
     fig.savefig('./output/plot.png')
-    plt.show()
+    plt.close()
+
+def compute_class_weights(train_dir):
+    """Compute class weights to handle class imbalance."""
+    print("Checking class distribution to handle imbalance...")
+    class_counts = Counter()
+    for emotion in os.listdir(train_dir):
+        class_path = os.path.join(train_dir, emotion)
+        if os.path.isdir(class_path):
+            class_counts[emotion] = len(os.listdir(class_path))
+    
+    print("Class distribution:", dict(class_counts))
+    total_samples = sum(class_counts.values())
+    num_classes = len(class_counts)
+    class_weights = {}
+    for emotion, count in class_counts.items():
+        class_weights[list(train_generator.class_indices.keys()).index(emotion)] = (1 / count) * (total_samples / num_classes)
+    
+    print("Class weights:", class_weights)
+    return class_weights
 
 def build_model():
-    """Build a transfer learning model using MobileNetV2 for improved emotion detection."""
+    """Build a transfer learning model using MobileNetV2 with fine-tuning."""
     print("Building improved model with transfer learning (MobileNetV2)...")
-    # Define input shape for upscaled images (96x96) and 3 color channels.
+    # Define input shape for upscaled images (96x96) and 3 color channels
     input_tensor = Input(shape=(96, 96, 3))
     
-    # Load MobileNetV2 as a fixed feature extractor
+    # Load MobileNetV2 as a feature extractor
     base_model = MobileNetV2(include_top=False, weights='imagenet', input_tensor=input_tensor)
-    base_model.trainable = False  # Freeze the base model
+    
+    # Unfreeze the last 20 layers for fine-tuning
+    for layer in base_model.layers[:-20]:
+        layer.trainable = False
+    for layer in base_model.layers[-20:]:
+        layer.trainable = True
     
     # Add new classification head
     x = base_model.output
@@ -101,40 +126,40 @@ def build_model():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Improved Emotion Detection Script")
-    parser.add_argument("--mode", type=str, default="train", help="Mode: 'train' or 'display'")
+    parser.add_argument("--mode", type=str, default="train", help="Mode: 'train', 'evaluate', or 'display'")
     args = parser.parse_args()
     mode = args.mode.lower()
 
-    if mode not in ["train", "display"]:
-        print("Invalid mode. Please use 'train' or 'display'.")
+    if mode not in ["train", "evaluate", "display"]:
+        print("Invalid mode. Please use 'train', 'evaluate', or 'display'.")
         exit(1)
     
     # Setup dataset directories
     train_dir, val_dir = setup_dataset()
 
-    # Parameters and image size adjustments for transfer learning:
-    batch_size = 64
-    num_epoch = 100
-    # Adjust these if needed based on your dataset counts
+    # Parameters and image size adjustments for transfer learning
+    batch_size = 32  # Reduced batch size for better generalization
+    num_epoch = 150  # Increased epochs for better convergence
     num_train = 28709  
     num_val = 7178     
     target_size = (96, 96)  # Upscale images for pre-trained network input
     
-    # Data augmentation for training
+    # More aggressive data augmentation for training
     train_datagen = ImageDataGenerator(
         rescale=1./255,
-        rotation_range=30,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        shear_range=0.2,
-        zoom_range=0.2,
+        rotation_range=40,  # Increased rotation
+        width_shift_range=0.3,  # More shifting
+        height_shift_range=0.3,  # More shifting
+        shear_range=0.3,  # More shear
+        zoom_range=0.3,  # More zoom
         horizontal_flip=True,
-        fill_mode='nearest'
+        fill_mode='nearest',
+        brightness_range=[0.8, 1.2]  # Added brightness variation
     )
     # Validation generator (only normalization)
     val_datagen = ImageDataGenerator(rescale=1./255)
     
-    # Since MobileNetV2 expects RGB images, we load images in 'rgb' mode (even though FER is grayscale)
+    # Load images in RGB mode for MobileNetV2
     train_generator = train_datagen.flow_from_directory(
         train_dir,
         target_size=target_size,
@@ -147,7 +172,8 @@ if __name__ == "__main__":
         target_size=target_size,
         batch_size=batch_size,
         color_mode="rgb",
-        class_mode='categorical'
+        class_mode='categorical',
+        shuffle=False  # Important for evaluation
     )
     
     print(f"Found {train_generator.samples} training images.")
@@ -156,13 +182,16 @@ if __name__ == "__main__":
     model = build_model()
 
     if mode == "train":
-        initial_learning_rate = 1e-3
+        # Compute class weights to handle imbalance
+        class_weights = compute_class_weights(train_dir)
+
+        initial_learning_rate = 1e-4  # Lower initial learning rate for fine-tuning
         optimizer = Adam(learning_rate=initial_learning_rate)
         model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
         
         # Callbacks for efficient training
-        early_stopping = EarlyStopping(monitor='val_accuracy', patience=10, restore_best_weights=True)
-        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
+        early_stopping = EarlyStopping(monitor='val_accuracy', patience=15, restore_best_weights=True)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=1e-6)
         checkpoint = ModelCheckpoint('./output/best_model.h5', monitor='val_accuracy', save_best_only=True, mode='max')
         
         print("Starting training... this may take a while.")
@@ -173,7 +202,8 @@ if __name__ == "__main__":
                 epochs=num_epoch,
                 validation_data=validation_generator,
                 validation_steps=num_val // batch_size,
-                callbacks=[early_stopping, reduce_lr, checkpoint]
+                callbacks=[early_stopping, reduce_lr, checkpoint],
+                class_weight=class_weights  # Handle class imbalance
             )
             plot_model_history(history)
             model.save_weights('./output/model.h5')
@@ -181,6 +211,33 @@ if __name__ == "__main__":
             print("Best model weights saved to './output/best_model.h5'.")
         except Exception as e:
             print(f"Training failed: {e}")
+
+    elif mode == "evaluate":
+        # Load the model weights
+        weights_path = os.path.join(os.getcwd(), 'output', 'best_model.h5')
+        if not os.path.exists(weights_path):
+            print("Model weights not found at:", weights_path)
+            exit(1)
+        model.load_weights(weights_path)
+
+        # Compile the model
+        model.compile(loss='categorical_crossentropy', optimizer=Adam(), metrics=['accuracy'])
+
+        # Evaluate overall accuracy
+        print("Evaluating overall accuracy...")
+        val_loss, val_accuracy = model.evaluate(validation_generator, verbose=1)
+        print(f"Validation Loss: {val_loss:.4f}")
+        print(f"Validation Accuracy: {val_accuracy:.4f}")
+
+        # Get per-class performance
+        print("Getting per-class performance...")
+        validation_generator.reset()
+        y_pred = model.predict(validation_generator, verbose=1)
+        y_pred_classes = np.argmax(y_pred, axis=1)
+        y_true = validation_generator.classes
+        emotion_labels = list(validation_generator.class_indices.keys())
+        print("Classification Report:")
+        print(classification_report(y_true, y_pred_classes, target_names=emotion_labels))
 
     elif mode == "display":
         # For real-time emotion detection using webcam
@@ -228,7 +285,7 @@ if __name__ == "__main__":
             for (x, y, w, h) in faces:
                 # Draw rectangle around face
                 cv2.rectangle(frame, (x, y-50), (x+w, y+h+10), (255, 0, 0), 2)
-                # Extract face region and preprocess:
+                # Extract face region and preprocess
                 roi_gray = gray[y:y+h, x:x+w]
                 # Convert grayscale face to RGB and resize to match input size
                 roi_rgb = cv2.cvtColor(roi_gray, cv2.COLOR_GRAY2RGB)
