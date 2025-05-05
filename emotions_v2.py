@@ -1,10 +1,3 @@
-"""
-Improved Emotion Detection Script with Transfer Learning
-
-This version uses MobileNetV2 with fine-tuning, class weighting, and enhanced data augmentation.
-We also add an evaluate mode to check per-class performance.
-"""
-
 import os
 import argparse
 import shutil
